@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm, multivariate_normal, uniform
 
-SALES = [26.91,47.79,37.43,31.24,33.8,51.03,43.72,35.2,39.27,74.47,61.17,47.53,48.05,74.78,51.19,40.4,45.51,78.29,50.76,41.03]
+SALES = [26.91,47.79,37.43,31.24,33.8,51.03,43.72,35.2,39.27,74.47,61.17,47.53,48.05,74.78,51.19,40.4,45.51,78.29,50.76, 41.03]
 GENERATION = [0,4,8,12,16]
 
 class SBass:
@@ -32,14 +32,18 @@ class SBass:
     def posterior(self,params):
         self.likelihood(params)["sumll"] + self.prior(params)
 
+    def bass_estimate(self, params):
+        pass
+
+    
+
+
 
 
 
 
 if __name__ == "__main__":
     pass
-
-
 
 
         
