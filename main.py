@@ -6,19 +6,20 @@ from Utils.Utils import load_object, save_object
 from collections import defaultdict
 import matplotlib.pyplot as plt
 import copy
+import time
 
-SALES = [26.91,47.79,37.43,31.24,33.8,51.03,43.72,35.2,39.27,74.47,61.17,47.53,48.05,74.78,51.19,40.4,45.51,78.29,50.76, 41.03]
+SALES = [0, 26.91,47.79,37.43,31.24,33.8,51.03,43.72,35.2,39.27,74.47,61.17,47.53,48.05,74.78,51.19,40.4,45.51,78.29,50.76, 41.03]
 GENERATION = [0,4,8,12,16]
 
 ## One Generation
-SALES1 = [0,26.91,47.79, 37.43, 31.24, 10.9]
-GENERATION1 = [0]
+SALES1 = [0, 26.91,47.79, 37.43, 31.24, 33.8, 51.03, 43.72,29.27]
+GENERATION1 = [0,4]
 
 L = len(GENERATION)
 M = [1,100]
 P = [0.01,100]
 Q = [0.01,100]
-SD = [0.01, 0.01]
+SD = [0.0000001, 0.01]
 MG, PG, QG = [], [], []
 PG = P
 for i in range(L):
@@ -26,7 +27,7 @@ for i in range(L):
     QG.append(Q)
 
 PRIOR = {"mp":MG,"pp":PG,"qp":QG,'sd':SD}
-SHOCK = {"m":0.5, "p":0.1,"q":0.1,"sd":0.05}
+SHOCK = {"m":1, "p":0.3,"q":0.3,"sd":0.1}
 
 
 
@@ -73,7 +74,7 @@ class SBass:
         self.save["sd"] = [10]
         for i in range(self.l):
             self.gts.append(range(self.gs[i],self.t))
-            self.xgs.append(list(range(self.gs[i],self.t)))
+            self.xgs.append(list(range(self.t - self.gs[i])))
             self.save["m"].append(np.array(self.pr["mp"][i][0]))
             self.save["q"].append(np.array(self.pr["qp"][i][0]))
         self.new = copy.deepcopy(self.save)
@@ -86,8 +87,10 @@ class SBass:
         sd = np.array([0.])
         for i in range(self.l):
             mp[i] = norm.logpdf(params['m'][i], self.pr['mp'][i][0],self.pr['mp'][i][1])
-            qp[i] = norm.logpdf(params['q'][i], self.pr['qp'][i][0],self.pr['qp'][i][1])
-        pp[0] = norm.logpdf(params['p'][0], self.pr['pp'][0], self.pr['pp'][1])
+            #qp[i] = norm.logpdf(params['q'][i], self.pr['qp'][i][0],self.pr['qp'][i][1])
+            qp[i] = uniform.logpdf(params['q'][i], 0, 10)
+        #pp[0] = norm.logpdf(params['p'][0], self.pr['pp'][0], self.pr['pp'][1])
+        pp[0] = uniform.logpdf(params["p"][0], 0, 5)
         sd[0] = norm.logpdf(params['sd'][0], self.pr['sd'][0], self.pr['sd'][1])
         sumll = np.sum(mp) + np.sum(qp) + pp + sd
         return sumll[0]
@@ -95,7 +98,7 @@ class SBass:
     def likelihood(self,params,xgs):
         pred = np.sum(self.bass_pred(xgs=xgs, params = params), axis=0 )
         #print("pred:",pred)
-        likelihoods = norm.logpdf(pred, self.sales,params["sd"][0] /10 )
+        likelihoods = norm.logpdf(pred, self.sales,params["sd"][0]/10 )
         sumll = np.sum(likelihoods)
         return {"sumll":sumll, "pred":pred}
 
@@ -136,11 +139,13 @@ class SBass:
                 save = np.array(params["m"][i] ,dtype=np.float32)
             else:
                 save = params["m"][i-1] * f[i-1,:] + params["m"][i]
+
             if i != (self.l - 1):
-                leap[i,:] = params["m"][i] * sf[i,:] * f[i+1,:]
-                pred[i,:] = (save * sf[i,:] + leap[i-1,:]) * (1 - f[i+1,:])
+                if i != 0:
+                    leap[i,:] = params["m"][i-1] * sf[i-1,:] * f[i,:]
+                pred[i,:] = (save * sf[i,:] + leap[i,:]) * (1 - f[i+1,:])
             else:
-                pred[i,:] = save * sf[i,:] + leap[i-1,:]
+                pred[i,:] = save * sf[i,:] + leap[i,:]
         return pred
 
     def MCMC(self):
@@ -150,11 +155,18 @@ class SBass:
         chain["p"] = np.array([0.] * self.iter).reshape((1,self.iter))
         chain["sd"] = chain["p"].copy()
         chain["pos"] = chain["p"].copy()
+        chain["lh"] = chain["p"].copy()
+        sta = time.time()
         for i in range(self.iter+self.burn):
-            if i % self.logint == 0:
-                info = 'Done %i / %i' %(i, (self.iter+self.burn))
+            if i % self.logint == 0 and i != 0:
+                timer = (time.time()-sta) *((self.iter + self.burn - i)/self.logint)
+                min = timer // 60
+                sec = timer % 60
+                info = 'Done %i / %i, remain est. : %i mins %i secs' %(i, (self.iter+self.burn), min, sec  )
                 logging.info(info)
                 print(info)
+                sta = time.time()
+                #sta = time.time()
             for pars,vals in self.save.items():   ## For Each parameters m , p , q etc..
                 for par in range(len(vals)):            ## For Each generations m1, m2, m3 ...
                     self.new[pars][par] = np.max([norm.rvs(vals[par],self.shock[pars]),0.001])
@@ -168,6 +180,7 @@ class SBass:
                         chain[pars][par,s] = self.save[pars][par]
             if i >= self.burn:
                 chain["pos"][0,s] = probab
+                chain["lh"][0,s] = self.likelihood(self.save,self.xgs)["sumll"]
         save_object(chain,"chain.p")
         return chain
 
@@ -187,7 +200,7 @@ class SBass:
     #def predict_by_posterior(self, params):
 
 if __name__ == "__main__":
-    sb = SBass(sales=SALES, generations=GENERATION, prior=PRIOR,shock = SHOCK,burn=1000,ite=2000,log_interval=100)
+    sb = SBass(sales=SALES, generations=GENERATION, prior=PRIOR,shock = SHOCK,burn=0,ite=6000,log_interval=500)
     #print(sb.new)
     #print(sb.bass_pred(xgs=sb.xgs, params = sb.new))
     print(sb.posterior(sb.new,sb.xgs))
@@ -196,15 +209,66 @@ if __name__ == "__main__":
     #print(result)
     res = load_object('chain.p')
     params = sb.chain2params(res)
+    plt.figure(figsize=(10, 10))
+    sub1 = plt.subplot(3, 3, 1)
+    sub2 = plt.subplot(3, 3, 2)
+    sub3 = plt.subplot(3, 3, 3)
+    sub4 = plt.subplot(3, 3, 4)
+    sub5 = plt.subplot(3, 3, 5)
+    sub6 = plt.subplot(3, 3, 6)
+    sub7 = plt.subplot(3, 3, 7)
+    sub8 = plt.subplot(3, 3, 8)
+    sub9 = plt.subplot(3, 3, 9)
+    sub2.grid()
+    sub3.grid()
+    sub4.grid()
+    sub5.grid()
+    sub6.grid()
+    sub7.grid()
+    sub8.grid()
+    sub9.grid()
 
-    sub1 = plt.subplot(2,1,1)
-    sub2 = plt.subplot(2,1,2)
     print(params)
 
+    xaxis = list(range(res["m"].shape[1]))
     x = list(range(res["m"].shape[1]))
-    y = res["q"][0,:]
+    y = res["m"][0,:]
+    sub1.grid()
     sub1.plot(x,y,"-x")
+
+    x2 = list(range(res["m"].shape[1]))
+    y2 = res["m"][1,:]
     #.show()
+    sub2.plot(x2, y2, "-x")
+
+    x3 = list(range(res["m"].shape[1]) )
+    y3 = res["sd"][0,:]
+    sub3.plot(x3, y3, "-x")
+
+    x4 = xaxis
+    y4 = res["q"][0,:]
+
+    sub4.plot(x4, y4, "-x")
+
+    x5 = xaxis
+    y5 = res["q"][1, :]
+
+    sub5.plot(x5, y5, "-x")
+
+    x6 = xaxis
+    y6 = res["p"][0, :]
+
+    sub6.plot(x6, y6, "-x")
+
+    x7 = xaxis
+    y7 = res["pos"][0, :]
+
+    sub7.plot(x7, y7, "-x")
+
+    x8 = xaxis
+    y8 = res["lh"][0, :]
+
+    sub8.plot(x8, y8, "-x")
 
     ss = sb.bass_pred(params,sb.xgs)
     s = np.sum(ss,axis=0)
@@ -213,12 +277,13 @@ if __name__ == "__main__":
     y1 = sb.sales
     y2 = s
 
-    sub2.plot(x,y1, "-o")
-    sub2.plot(x,y2, "-x")
+    sub9.plot(x,y1, "-o")
+    sub9.plot(x,y2, "-x")
     for i in range(ss.shape[0]):
-        sub2.plot(x,ss[i,:])
+        sub9.plot(x,ss[i,:])
 
     plt.show()
+    print(ss)
     print(ss)
 
 
