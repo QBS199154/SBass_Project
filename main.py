@@ -11,6 +11,8 @@ import time
 #SALES = [0.27, 1.12, 2.32, 1.7, 0.72, 6.89, 4.36, 3.79, 5.21, 7.37, 8.74, 8.75, 8.4, 14.1, 16.24, 18.65, 20.34, 17.07, 37.04, 35.06, 26.03, 26.91,47.79,37.43,31.24,33.8,51.03,43.72,35.2,39.27,74.47,61.17,47.53,48.05,74.78,51.19,40.4,45.51,78.29,50.76, 41.03]
 SALES = [0, 26.91,47.79,37.43,31.24,33.8,51.03,43.72,35.2,39.27,74.47,61.17,47.53,48.05,74.78,51.19,40.4,45.51,78.29,50.76, 41.03]
 
+
+
 #print(len(SALES))
 
 #GENERATION = [0, 5, 9, 13, 17, 21, 25, 29, 33, 37]
@@ -25,7 +27,7 @@ L = len(GENERATION)
 M = [1,100]
 P = [0.01,100]
 Q = [0.01,100]
-SD = [0.01, 0.001]
+SD = [0.01, 0.01]
 MG, PG, QG = [], [], []
 
 # Marketing Mix
@@ -134,12 +136,23 @@ class SBass:
             pp[0] = uniform.logpdf(params["p"][0], 0, 5)
         sd[0] = norm.logpdf(params['sd'][0], self.pr['sd'][0], self.pr['sd'][1])
         sumll = np.sum(mp) + np.sum(qp) + np.sum(pp) + sd
+
+        ##  Prior For price
+        if self.price is not None:
+            if self.hete:
+                ap = norm.logpdf(params["a"][0],self.pr["a"][0],self.pr["a"][1])
+            else:
+                ap = 0
+                for i in params["a"]:
+                    ap +=  norm.logpdf(params["a"][i],self.pr["a"][0],self.pr["a"][1])
+            sumll += ap
+
         return sumll[0]
 
     def likelihood(self,params,xgs):
         pred = np.sum(self.bass_pred(xgs=xgs, params = params), axis=0 )
         #print("pred:",pred)
-        likelihoods = norm.logpdf(pred, self.sales,params["sd"][0] )
+        likelihoods = norm.logpdf(pred, self.sales,params["sd"][0] /10)
         sumll = np.sum(likelihoods)
         return {"sumll":sumll, "pred":pred}
 
@@ -194,6 +207,7 @@ class SBass:
                     leap[i,:] = params["m"][i-1] * sf[i-1,:] * f[i,:]
                 pred[i,:] = (save * sf[i,:] + leap[i,:]) * (1 - f[i+1,:])
             else:
+                leap[i, :] = params["m"][i - 1] * sf[i - 1, :] * f[i, :]
                 pred[i,:] = save * sf[i,:] + leap[i,:]
         if rleap:
             return leap
@@ -262,7 +276,18 @@ class SBass:
     def xg(self,price = None, xg = None):
         if price is None: price = self.price
         assert xg is not None, "xg must have a value."
-
+    def plot_mat(self,mat,path=None,title=None):
+        sub = []
+        x = list(range(mat.shape[1]))
+        for i in range(mat.shape[0]):
+            sub.append(plt.subplot(3,3,i+1))
+            if title is not None:
+                sub[i].set_title("m %i" % (i+1))
+            sub[i].plot(x,mat[i,:])
+        if path is None:
+            plt.show()
+        else:
+            plt.savefig(path)
 
 
 
@@ -283,7 +308,7 @@ if __name__ == "__main__":
     sb = SBass(sales=np.array(SALES)/10, generations=GENERATION, prior=PRIOR, shock=SHOCK, burn=0, ite=3000, log_interval=500,
                fixp=True)
 
-    res = sb.MCMC()
+    #res = sb.MCMC()
     res = load_object('chain.p')
     params = sb.chain2params(res)
 
@@ -348,6 +373,8 @@ if __name__ == "__main__":
 
     leap = sb.bass_pred(params,sb.xgs,rleap=True)
     print(leap)
+    sb.plot_mat(leap,path="leap.png", title="Leapfrog")
+    sb.plot_mat(res["m"],"m","m")
 
     xaxis = list(range(res["m"].shape[1]))
     x = list(range(res["m"].shape[1]))
