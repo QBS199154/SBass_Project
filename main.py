@@ -7,16 +7,18 @@ from collections import defaultdict
 import matplotlib.pyplot as plt
 import copy
 import time
+import numba
+from numba.decorators import jit
 
-SALES = [0, 0.27, 1.12, 2.32, 1.7, 0.72, 6.89, 4.36, 3.79, 5.21, 7.37, 8.74, 8.75, 8.4, 14.1, 16.24, 18.65, 20.34, 17.07, 37.04, 35.06, 26.03, 26.91,47.79,37.43,31.24,33.8,51.03,43.72,35.2,39.27,74.47,61.17,47.53,48.05,74.78,51.19,40.4,45.51,78.29,50.76, 41.03]
-#SALES = [0, 26.91,47.79,37.43,31.24,33.8,51.03,43.72,35.2,39.27,74.47,61.17,47.53,48.05,74.78,51.19,40.4,45.51,78.29,50.76, 41.03]
+#SALES = [0, 0.27, 1.12, 2.32, 1.7, 0.72, 6.89, 4.36, 3.79, 5.21, 7.37, 8.74, 8.75, 8.4, 14.1, 16.24, 18.65, 20.34, 17.07, 37.04, 35.06, 26.03, 26.91,47.79,37.43,31.24,33.8,51.03,43.72,35.2,39.27,74.47,61.17,47.53,48.05,74.78,51.19,40.4,45.51,78.29,50.76, 41.03]
+SALES = [ 26.91,47.79,37.43,31.24,33.8,51.03,43.72,35.2,39.27,74.47,61.17,47.53,48.05,74.78,51.19,40.4,45.51,78.29,50.76, 41.03]
+SHARES = [ 0.160307331683813, 0.2278374836173, 0.195691019553786, 0.151594354417146, 0.128500614328687, 0.186117184894193, 0.159121983666531, 0.126779758275652, 0.130546250085458, 0.211449885557659, 0.185100885826772, 0.150403452805404, 0.133048326063722, 0.180212637307266, 0.149921598234508, 0.130087017667223, 0.116006151023822, 0.179283702962463, 0.137579718965837, 0.121012672055932, 0.107144495939063, 0.152543710778703, 0.141012598794898, 0.119501897279675]
+TOATAL = [ 153.58, 190.75, 195.87, 210.43, 236.03, 269.83, 270.61, 278.83, 292.54, 353.89, 325.12, 319.74, 346.19, 396.92, 344.38, 341.31, 370.67, 429.71, 377.89, 366.16, 435.86, 506.74, 383.37, 374.22]
 
 
 
-#print(len(SALES))
-
-GENERATION = [0, 5, 9, 13, 17, 21, 25, 29, 33, 37]
-#GENERATION = [0, 4, 8, 12, 16]
+#GENERATION = [0, 5, 9, 13, 17, 21, 25, 29, 33, 37]
+GENERATION = [0, 4, 8, 12, 16]
 
 ## One Generation
 #SALES1 = [0.1, 1.3, 2.0, 2.91,4.79, 3.43, 2.9]
@@ -27,7 +29,7 @@ L = len(GENERATION)
 M = [1,100]
 P = [0.01,100]
 Q = [0.01,100]
-SD = [1, 1]
+SD = [1, 0.2]
 MG, PG, QG = [], [], []
 
 # Marketing Mix
@@ -48,6 +50,7 @@ for i in range(L):
     BETAG.append(BETA)
     ITAG.append(ITA)
     OMEGAG.append(OMEGA)
+
 PRIOR = {"mp":MG,"pp":PG,"qp":QG,'sd':SD,"a":ALPHAG,"b":BETAG,"I":ITAG,"o":OMEGAG}
 SHOCK = {"m":0.1, "p":0.1,"q":0.1,"sd":0.1, "mm":0.1}
 
@@ -116,7 +119,7 @@ class SBass:
         self.new = copy.deepcopy(self.save)
 
 
-
+    #@jit
     def prior(self,params):
         mp = np.array([0.] * self.l)
         qp = mp.copy()
@@ -148,11 +151,11 @@ class SBass:
             sumll += ap
 
         return sumll[0]
-
+    #@jit
     def likelihood(self,params,xgs):
         pred = np.sum(self.bass_pred(xgs=xgs, params = params), axis=0 )
         #print("pred:",pred)
-        likelihoods = norm.logpdf(pred, self.sales,params["sd"][0] / 20)
+        likelihoods = norm.logpdf(pred, self.sales,params["sd"][0] / 10)
         sumll = np.sum(likelihoods)
         return {"sumll":sumll, "pred":pred}
 
@@ -168,25 +171,27 @@ class SBass:
         return new
 
     def bf(self, p, q, xg):
-        xg = np.array(xg)
+        xg = np.array(xg) + 1
         f = (1 - np.exp(- (p + q) * xg)) / (1 + (q/p) * np.exp(- (p+ q)* xg ))
         return f
     def sf(self,bigf, t):
-        if t == 1:
+        if t == 0:
             s = bigf[t]
         else:
             s = bigf[t] - bigf[t-1]
         return s
 
-
     def bass_pred(self, params, xgs, t= None, rleap=False):
         if t is None:
             t = self.t
-        f = np.array([0.]* t * self.l ).reshape((self.l, t))
-        sf = np.array([0.] * t * self.l).reshape((self.l, t))
+        #f = np.array([0.]* t * self.l ).reshape((self.l, t))
+        f = np.zeros((self.l,t))
+        sf = f.copy()
+        #sf = np.array([0.] * t * self.l).reshape((self.l, t))
         leap = sf.copy()
-        pred = np.array([0.]* t * self.l ).reshape((self.l, t))
-        bigm = np.array([0.]* t)
+        pred = sf.copy()
+        #pred = np.array([0.]* t * self.l ).reshape((self.l, t))
+        #bigm = np.array([0.]* t)
         for i in range(self.l):
             l = len(self.xgs[i])
             s = self.t - l
@@ -276,7 +281,9 @@ class SBass:
     def xg(self,price = None, xg = None):
         if price is None: price = self.price
         assert xg is not None, "xg must have a value."
+
     def plot_mat(self,mat,path=None,title=None,total=False):
+        plt.figure(figsize=(10, 10))
         plt.subplots_adjust(wspace=0.4, hspace= 0.6)
         sub = []
         x = list(range(mat.shape[1]))
@@ -288,6 +295,7 @@ class SBass:
             sub.append(plt.subplot(h,3,i+1))
             if title is not None:
                 sub[i].set_title("%s %i" % (title, i+1))
+            plt.grid()
             sub[i].plot(x,mat[i,:])
         if total:
             sub.append(plt.subplot(h,3,mat.shape[0]+1))
@@ -301,6 +309,7 @@ class SBass:
         else:
             plt.savefig(path)
             plt.clf()
+            plt.close()
 
 
 
@@ -320,7 +329,7 @@ if __name__ == "__main__":
     #           fixp=True)
     sb = SBass(sales=np.array(SALES)/10,
                generations=GENERATION, prior=PRIOR, shock=SHOCK,
-               burn=0, ite=3000, log_interval=500,
+               burn=0, ite=7000, log_interval=500,
                fixp=True)
 
     #res = sb.MCMC()
@@ -370,9 +379,50 @@ if __name__ == "__main__":
     print(params)
 
     leap = sb.bass_pred(params,sb.xgs,rleap=True)
+    total_leap = np.sum(leap,axis=0)
+    change = (np.array(TOATAL[1:])/10 * np.diff(SHARES))[:20]
+    nchange = change - total_leap
+    x = list(range(change.shape[0]))
+    plt.plot(x,change)
+    plt.grid()
+    plt.savefig("change.png")
+    plt.clf()
+    plt.plot(total_leap[1:]*10)
+    plt.title("Total Leap")
+    plt.grid()
+    plt.savefig("Total_Leap.png")
+    plt.clf()
+    tmp = nchange / total_leap
+    print(tmp)
+    tmp[6] = -10
+    tmp2 = np.array([None,None,None,None, 25,
+                     -41, -28.3, 15.9, 8.3, -8.2,
+                     -9.3, -9.1, 10.9, -6.85, -9.14,
+                     -5.18, 20.95, -3.1, -1.34, -10.95])
+    wt, = plt.plot(tmp,"-o",linewidth=3)
+    nt, = plt.plot(tmp2,"-x", linewidth = 2)
+    plt.vlines([4,8,12,16],-50,50,label=[1,2,3,4],linestyles="dashed")
+    plt.grid()
+    plt.hlines(0,0,20)
+    plt.title("Leap(Android)/Leap(iPhone)")
+    plt.legend([nt,wt],["No_Topic","With_Topic"])
+    plt.savefig("fig/est/LeapCompare.png")
+    plt.clf()
+    tmp3 = tmp2[4:] - tmp[4:]
+    plt.plot(tmp3,"-o",linewidth=3)
+    plt.grid()
+    plt.title("Topic - NoTopic")
+    plt.hlines(0,-0,16,linestyles="dashed")
+    plt.savefig("fig/est/T_NoT.png")
+    #plt.show()
+
+
     print(leap)
-    sb.plot_mat(leap,path="leap.png", title="Leapfrog",total=True)
-    sb.plot_mat(res["m"],"m","m")
+    sb.plot_mat(leap,path="fig/est/leap.png", title="Leapfrog",total=True)
+    sb.plot_mat(res["m"],path="fig/est/m.png",title ="m", total=False)
+    sb.plot_mat(res["p"], path="fig/est/p.png", title="p", total=False)
+    sb.plot_mat(res["q"], path="fig/est/q.png", title="q", total=False)
+    sb.plot_mat(res["sd"], path="fig/est/sd.png", title="sd", total=False)
 
     xaxis = list(range(res["m"].shape[1]))
     x = list(range(res["m"].shape[1]))
@@ -397,33 +447,6 @@ if __name__ == "__main__":
     sub8.grid()
     sub9.grid()
 
-    sub1.grid()
-    sub1.plot(x,y,"-x")
-
-    x2 = list(range(res["m"].shape[1]))
-    y2 = res["m"][1,:]
-    #.show()
-    sub2.plot(x2, y2, "-x")
-
-    x3 = list(range(res["m"].shape[1]) )
-    y3 = res["sd"][0,:]
-    sub3.plot(x3, y3, "-x")
-
-    x4 = xaxis
-    y4 = res["q"][0,:]
-
-    sub4.plot(x4, y4, "-x")
-
-    x5 = xaxis
-    y5 = res["q"][1, :]
-
-    sub5.plot(x5, y5, "-x")
-
-    x6 = xaxis
-    y6 = res["p"][0, :]
-
-    sub6.plot(x6, y6, "-x")
-
     x7 = xaxis
     y7 = res["pos"][0, :]
 
@@ -446,13 +469,20 @@ if __name__ == "__main__":
     for i in range(ss.shape[0]):
         sub9.plot(x,ss[i,:])
 
-    plt.show()
-    plt.plot(x,y1, "-o")
-    plt.plot(x,y2, "-x")
+    #plt.show()
+    plt.clf()
+    plt.figure(figsize=(5,5))
+    plt.plot(x,y1, "-o",linewidth=3)
+    plt.plot(x,y2, "-x",linewidth=3)
+    plt.grid()
+    nn = []
     for i in range(ss.shape[0]):
-        plt.plot(x,ss[i,:])
-    plt.legend()
-    plt.show()
+        plt.plot(x,ss[i,:],linestyle="dashed")
+    plt.legend(["Sales","Est.","5","5S","6","6S","7"])
+    plt.savefig("fig/est/predict.png")
+    #plt.show()
+
+
     print(ss)
     print(ss)
 
