@@ -8,15 +8,15 @@ import matplotlib.pyplot as plt
 import copy
 import time
 
-#SALES = [0.27, 1.12, 2.32, 1.7, 0.72, 6.89, 4.36, 3.79, 5.21, 7.37, 8.74, 8.75, 8.4, 14.1, 16.24, 18.65, 20.34, 17.07, 37.04, 35.06, 26.03, 26.91,47.79,37.43,31.24,33.8,51.03,43.72,35.2,39.27,74.47,61.17,47.53,48.05,74.78,51.19,40.4,45.51,78.29,50.76, 41.03]
-SALES = [0, 26.91,47.79,37.43,31.24,33.8,51.03,43.72,35.2,39.27,74.47,61.17,47.53,48.05,74.78,51.19,40.4,45.51,78.29,50.76, 41.03]
+SALES = [0, 0.27, 1.12, 2.32, 1.7, 0.72, 6.89, 4.36, 3.79, 5.21, 7.37, 8.74, 8.75, 8.4, 14.1, 16.24, 18.65, 20.34, 17.07, 37.04, 35.06, 26.03, 26.91,47.79,37.43,31.24,33.8,51.03,43.72,35.2,39.27,74.47,61.17,47.53,48.05,74.78,51.19,40.4,45.51,78.29,50.76, 41.03]
+#SALES = [0, 26.91,47.79,37.43,31.24,33.8,51.03,43.72,35.2,39.27,74.47,61.17,47.53,48.05,74.78,51.19,40.4,45.51,78.29,50.76, 41.03]
 
 
 
 #print(len(SALES))
 
-#GENERATION = [0, 5, 9, 13, 17, 21, 25, 29, 33, 37]
-GENERATION = [0, 4, 8, 12, 16]
+GENERATION = [0, 5, 9, 13, 17, 21, 25, 29, 33, 37]
+#GENERATION = [0, 4, 8, 12, 16]
 
 ## One Generation
 #SALES1 = [0.1, 1.3, 2.0, 2.91,4.79, 3.43, 2.9]
@@ -27,7 +27,7 @@ L = len(GENERATION)
 M = [1,100]
 P = [0.01,100]
 Q = [0.01,100]
-SD = [0.01, 0.01]
+SD = [1, 1]
 MG, PG, QG = [], [], []
 
 # Marketing Mix
@@ -152,7 +152,7 @@ class SBass:
     def likelihood(self,params,xgs):
         pred = np.sum(self.bass_pred(xgs=xgs, params = params), axis=0 )
         #print("pred:",pred)
-        likelihoods = norm.logpdf(pred, self.sales,params["sd"][0] /10)
+        likelihoods = norm.logpdf(pred, self.sales,params["sd"][0] / 20)
         sumll = np.sum(likelihoods)
         return {"sumll":sumll, "pred":pred}
 
@@ -276,18 +276,31 @@ class SBass:
     def xg(self,price = None, xg = None):
         if price is None: price = self.price
         assert xg is not None, "xg must have a value."
-    def plot_mat(self,mat,path=None,title=None):
+    def plot_mat(self,mat,path=None,title=None,total=False):
+        plt.subplots_adjust(wspace=0.4, hspace= 0.6)
         sub = []
         x = list(range(mat.shape[1]))
+        if len(x) < 9:
+            h = 3
+        else:
+            h = 4
         for i in range(mat.shape[0]):
-            sub.append(plt.subplot(3,3,i+1))
+            sub.append(plt.subplot(h,3,i+1))
             if title is not None:
-                sub[i].set_title("m %i" % (i+1))
+                sub[i].set_title("%s %i" % (title, i+1))
             sub[i].plot(x,mat[i,:])
+        if total:
+            sub.append(plt.subplot(h,3,mat.shape[0]+1))
+            sub[mat.shape[0]].grid()
+            sub[mat.shape[0]].set_title("%s total" % title)
+            sub[mat.shape[0]].plot(x,mat.sum(axis=0))
         if path is None:
             plt.show()
+            plt.clf()
+
         else:
             plt.savefig(path)
+            plt.clf()
 
 
 
@@ -305,7 +318,9 @@ if __name__ == "__main__":
     #params = sb.chain2params(res)
     #sb = SBass(sales=SALES[0:10], generations=[0,3], prior=PRIOR, shock=SHOCK, burn=0, ite=3000, log_interval=500,
     #           fixp=True)
-    sb = SBass(sales=np.array(SALES)/10, generations=GENERATION, prior=PRIOR, shock=SHOCK, burn=0, ite=3000, log_interval=500,
+    sb = SBass(sales=np.array(SALES)/10,
+               generations=GENERATION, prior=PRIOR, shock=SHOCK,
+               burn=0, ite=3000, log_interval=500,
                fixp=True)
 
     #res = sb.MCMC()
@@ -350,6 +365,19 @@ if __name__ == "__main__":
     plt.show()
     """
 
+
+
+    print(params)
+
+    leap = sb.bass_pred(params,sb.xgs,rleap=True)
+    print(leap)
+    sb.plot_mat(leap,path="leap.png", title="Leapfrog",total=True)
+    sb.plot_mat(res["m"],"m","m")
+
+    xaxis = list(range(res["m"].shape[1]))
+    x = list(range(res["m"].shape[1]))
+    y = res["m"][0,:]
+
     plt.figure(figsize=(10, 10))
     sub1 = plt.subplot(3, 3, 1)
     sub2 = plt.subplot(3, 3, 2)
@@ -369,16 +397,6 @@ if __name__ == "__main__":
     sub8.grid()
     sub9.grid()
 
-    print(params)
-
-    leap = sb.bass_pred(params,sb.xgs,rleap=True)
-    print(leap)
-    sb.plot_mat(leap,path="leap.png", title="Leapfrog")
-    sb.plot_mat(res["m"],"m","m")
-
-    xaxis = list(range(res["m"].shape[1]))
-    x = list(range(res["m"].shape[1]))
-    y = res["m"][0,:]
     sub1.grid()
     sub1.plot(x,y,"-x")
 
@@ -428,6 +446,12 @@ if __name__ == "__main__":
     for i in range(ss.shape[0]):
         sub9.plot(x,ss[i,:])
 
+    plt.show()
+    plt.plot(x,y1, "-o")
+    plt.plot(x,y2, "-x")
+    for i in range(ss.shape[0]):
+        plt.plot(x,ss[i,:])
+    plt.legend()
     plt.show()
     print(ss)
     print(ss)
